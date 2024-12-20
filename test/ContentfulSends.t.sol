@@ -56,7 +56,7 @@ contract ContentfulSendsTest is Test {
         vm.prank(ALICE);
         token.approve(address(sends), 0); // Remove approval
         
-        vm.expectRevert("Transfer failed");
+        vm.expectRevert("Insufficient allowance");
         vm.prank(ALICE);
         sends.sendErc20(address(token), ALICE, BOB, amount, "Should fail");
     }
@@ -64,7 +64,7 @@ contract ContentfulSendsTest is Test {
     function testSendErc20FailsWithInsufficientBalance() public {
         uint256 amount = INITIAL_BALANCE + 1;
         
-        vm.expectRevert("Transfer failed");
+        vm.expectRevert("Insufficient balance");
         vm.prank(ALICE);
         sends.sendErc20(address(token), ALICE, BOB, amount, "Should fail");
     }
@@ -75,8 +75,17 @@ contract ContentfulSendsTest is Test {
         uint256 validBefore = block.timestamp + 1 days;
         bytes32 nonce = bytes32(uint256(1));
         
-        // Create signature (in real test this would be a valid signature)
-        bytes memory signature = new bytes(65);
+        // Generate valid signature
+        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+            ALICE,
+            BOB,
+            amount,
+            validAfter,
+            validBefore,
+            nonce
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest); // Using private key 1 for ALICE
+        bytes memory signature = abi.encodePacked(r, s, v);
         
         vm.prank(ALICE);
         sends.sendErc20WithPermit(
@@ -100,8 +109,19 @@ contract ContentfulSendsTest is Test {
         uint256 validAfter = block.timestamp;
         uint256 validBefore = block.timestamp + 1 days;
         bytes32 nonce = bytes32(uint256(1));
-        bytes memory signature = new bytes(65);
         string memory message = "Hello from ERC3009!";
+        
+        // Generate valid signature
+        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+            ALICE,
+            BOB,
+            amount,
+            validAfter,
+            validBefore,
+            nonce
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
         
         vm.expectEmit(true, true, false, true);
         emit ContentfulSends.MessagedTransfer(ALICE, BOB, amount, message);
@@ -117,6 +137,97 @@ contract ContentfulSendsTest is Test {
             nonce,
             signature,
             message
+        );
+    }
+    
+    function testSendErc20WithZeroAmount() public {
+        vm.prank(ALICE);
+        sends.sendErc20(address(token), ALICE, BOB, 0, "Zero amount transfer");
+        
+        assertEq(token.balanceOf(BOB), 0);
+        assertEq(token.balanceOf(ALICE), INITIAL_BALANCE);
+    }
+    
+    function testSendErc20ToSelf() public {
+        uint256 amount = 100e18;
+        
+        vm.prank(ALICE);
+        sends.sendErc20(address(token), ALICE, ALICE, amount, "Self transfer");
+        
+        assertEq(token.balanceOf(ALICE), INITIAL_BALANCE);
+    }
+    
+    function testSendErc20WithEmptyMessage() public {
+        uint256 amount = 100e18;
+        
+        vm.prank(ALICE);
+        sends.sendErc20(address(token), ALICE, BOB, amount, "");
+        
+        assertEq(token.balanceOf(BOB), amount);
+        assertEq(token.balanceOf(ALICE), INITIAL_BALANCE - amount);
+    }
+    
+    function testSendErc3009WithExpiredValidBefore() public {
+        uint256 amount = 100e18;
+        uint256 validAfter = block.timestamp;
+        uint256 validBefore = block.timestamp - 1; // Expired
+        bytes32 nonce = bytes32(uint256(1));
+        
+        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+            ALICE,
+            BOB,
+            amount,
+            validAfter,
+            validBefore,
+            nonce
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        
+        vm.expectRevert("Authorization expired");
+        vm.prank(ALICE);
+        sends.sendErc20WithPermit(
+            address(token3009),
+            ALICE,
+            BOB,
+            amount,
+            validAfter,
+            validBefore,
+            nonce,
+            signature,
+            "Should fail"
+        );
+    }
+    
+    function testSendErc3009WithFutureValidAfter() public {
+        uint256 amount = 100e18;
+        uint256 validAfter = block.timestamp + 1 hours; // Future
+        uint256 validBefore = block.timestamp + 2 hours;
+        bytes32 nonce = bytes32(uint256(1));
+        
+        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+            ALICE,
+            BOB,
+            amount,
+            validAfter,
+            validBefore,
+            nonce
+        );
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
+        bytes memory signature = abi.encodePacked(r, s, v);
+        
+        vm.expectRevert("Authorization not yet valid");
+        vm.prank(ALICE);
+        sends.sendErc20WithPermit(
+            address(token3009),
+            ALICE,
+            BOB,
+            amount,
+            validAfter,
+            validBefore,
+            nonce,
+            signature,
+            "Should fail"
         );
     }
 } 
