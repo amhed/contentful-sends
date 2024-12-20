@@ -42,23 +42,18 @@ contract MockERC3009 {
         uint256 validBefore,
         bytes32 nonce
     ) public view returns (bytes32) {
-        return keccak256(
-            abi.encodePacked(
-                "\x19\x01",
-                DOMAIN_SEPARATOR,
-                keccak256(
-                    abi.encode(
-                        TRANSFER_WITH_AUTHORIZATION_TYPEHASH,
-                        from,
-                        to,
-                        value,
-                        validAfter,
-                        validBefore,
-                        nonce
-                    )
-                )
+        bytes32 structHash = keccak256(
+            abi.encode(
+                TRANSFER_WITH_AUTHORIZATION_TYPEHASH,
+                from,
+                to,
+                value,
+                validAfter,
+                validBefore,
+                nonce
             )
         );
+        return keccak256(abi.encodePacked("\x19\x01", DOMAIN_SEPARATOR, structHash));
     }
     
     function mint(address to, uint256 amount) external {
@@ -88,18 +83,19 @@ contract MockERC3009 {
             nonce
         );
         
-        // Split the signature into r, s, v
         require(signature.length == 65, "Invalid signature length");
         bytes32 r;
         bytes32 s;
         uint8 v;
+        
         assembly {
             r := mload(add(signature, 32))
             s := mload(add(signature, 64))
             v := byte(0, mload(add(signature, 96)))
         }
         
-        // Verify signature
+        if (v < 27) v += 27;
+        
         address recoveredAddress = ecrecover(digest, v, r, s);
         require(recoveredAddress != address(0) && recoveredAddress == from, "Invalid signature");
         

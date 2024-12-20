@@ -14,6 +14,7 @@ contract ContentfulSendsTest is Test {
     address public constant ALICE = address(0x1);
     address public constant BOB = address(0x2);
     uint256 public constant INITIAL_BALANCE = 1000e18;
+    uint256 public constant ALICE_PRIVATE_KEY = uint256(0x1234);
     
     function setUp() public {
         sends = new ContentfulSends();
@@ -26,6 +27,34 @@ contract ContentfulSendsTest is Test {
         
         vm.prank(ALICE);
         token.approve(address(sends), type(uint256).max);
+        
+        // Label addresses for better error messages
+        vm.label(ALICE, "ALICE");
+        vm.label(BOB, "BOB");
+        
+        // Set block timestamp to a known value
+        vm.warp(1000);
+    }
+    
+    function _signTransferAuthorization(
+        address from,
+        address to,
+        uint256 amount,
+        uint256 validAfter,
+        uint256 validBefore,
+        bytes32 nonce
+    ) internal view returns (bytes memory) {
+        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+            from,
+            to,
+            amount,
+            validAfter,
+            validBefore,
+            nonce
+        );
+        
+        (uint8 v, bytes32 r, bytes32 s) = vm.sign(ALICE_PRIVATE_KEY, digest);
+        return abi.encodePacked(r, s, bytes1(v));
     }
     
     function testSendErc20() public {
@@ -74,9 +103,9 @@ contract ContentfulSendsTest is Test {
         uint256 validAfter = block.timestamp;
         uint256 validBefore = block.timestamp + 1 days;
         bytes32 nonce = bytes32(uint256(1));
+        string memory message = "Hello from ERC3009!";
         
-        // Generate valid signature
-        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+        bytes memory signature = _signTransferAuthorization(
             ALICE,
             BOB,
             amount,
@@ -84,8 +113,6 @@ contract ContentfulSendsTest is Test {
             validBefore,
             nonce
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest); // Using private key 1 for ALICE
-        bytes memory signature = abi.encodePacked(r, s, v);
         
         vm.prank(ALICE);
         sends.sendErc20WithPermit(
@@ -97,7 +124,7 @@ contract ContentfulSendsTest is Test {
             validBefore,
             nonce,
             signature,
-            "Hello from ERC3009!"
+            message
         );
         
         assertEq(token3009.balanceOf(BOB), amount);
@@ -111,8 +138,7 @@ contract ContentfulSendsTest is Test {
         bytes32 nonce = bytes32(uint256(1));
         string memory message = "Hello from ERC3009!";
         
-        // Generate valid signature
-        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+        bytes memory signature = _signTransferAuthorization(
             ALICE,
             BOB,
             amount,
@@ -120,8 +146,6 @@ contract ContentfulSendsTest is Test {
             validBefore,
             nonce
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
-        bytes memory signature = abi.encodePacked(r, s, v);
         
         vm.expectEmit(true, true, false, true);
         emit ContentfulSends.MessagedTransfer(ALICE, BOB, amount, message);
@@ -173,7 +197,7 @@ contract ContentfulSendsTest is Test {
         uint256 validBefore = block.timestamp - 1; // Expired
         bytes32 nonce = bytes32(uint256(1));
         
-        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+        bytes memory signature = _signTransferAuthorization(
             ALICE,
             BOB,
             amount,
@@ -181,8 +205,6 @@ contract ContentfulSendsTest is Test {
             validBefore,
             nonce
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
-        bytes memory signature = abi.encodePacked(r, s, v);
         
         vm.expectRevert("Authorization expired");
         vm.prank(ALICE);
@@ -205,7 +227,7 @@ contract ContentfulSendsTest is Test {
         uint256 validBefore = block.timestamp + 2 hours;
         bytes32 nonce = bytes32(uint256(1));
         
-        bytes32 digest = token3009.getTransferWithAuthorizationDigest(
+        bytes memory signature = _signTransferAuthorization(
             ALICE,
             BOB,
             amount,
@@ -213,8 +235,6 @@ contract ContentfulSendsTest is Test {
             validBefore,
             nonce
         );
-        (uint8 v, bytes32 r, bytes32 s) = vm.sign(1, digest);
-        bytes memory signature = abi.encodePacked(r, s, v);
         
         vm.expectRevert("Authorization not yet valid");
         vm.prank(ALICE);
