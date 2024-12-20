@@ -1,101 +1,195 @@
-import Image from "next/image";
+"use client";
 
-export default function Home() {
+import { useState } from "react";
+import {
+  Card,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import {
+  useAccount,
+  useWriteContract,
+  useWaitForTransactionReceipt,
+} from "wagmi";
+import { ADDRESSES } from "@/constants/addresses";
+import { parseUnits } from "viem";
+import { useToast } from "@/hooks/use-toast";
+import { signTypedData } from "@wagmi/core";
+
+export default function TestPage() {
+  const [contractAddress, setContractAddress] = useState(
+    ADDRESSES.CONTENTFUL_SENDS.BASE
+  );
+  const [tokenAddress, setTokenAddress] = useState(ADDRESSES.TOKENS.USDC.BASE);
+  const [amount, setAmount] = useState("");
+  const [recipient, setRecipient] = useState("");
+  const { address } = useAccount();
+  const { toast } = useToast();
+
+  const { writeContract: approveERC20, data: approveData } = useWriteContract();
+  const { writeContract: sendERC20 } = useWriteContract();
+
+  const { data: approveReceipt } = useWaitForTransactionReceipt({
+    hash: approveData,
+  });
+  console.log(approveReceipt);
+
+  const handleApprove = () => {
+    if (!amount) return;
+    approveERC20({
+      address: tokenAddress as `0x${string}`,
+      abi: [
+        {
+          name: "approve",
+          type: "function",
+          stateMutability: "nonpayable",
+          inputs: [
+            { name: "spender", type: "address" },
+            { name: "amount", type: "uint256" },
+          ],
+          outputs: [{ name: "", type: "bool" }],
+        },
+      ],
+      functionName: "approve",
+      args: [contractAddress as `0x${string}`, parseUnits(amount, 6)],
+    });
+  };
+
+  const handleSend = () => {
+    if (!amount || !recipient) return;
+    sendERC20({
+      address: contractAddress as `0x${string}`,
+      abi: [
+        {
+          name: "sendERC20",
+          type: "function",
+          stateMutability: "nonpayable",
+          inputs: [
+            { name: "token", type: "address" },
+            { name: "to", type: "address" },
+            { name: "amount", type: "uint256" },
+          ],
+          outputs: [],
+        },
+      ],
+      functionName: "sendERC20",
+      args: [
+        tokenAddress as `0x${string}`,
+        recipient as `0x${string}`,
+        parseUnits(amount, 6),
+      ],
+    });
+  };
+
+  const handleEIP3009Send = async () => {
+    if (!amount || !recipient) return;
+
+    const deadline = Math.floor(Date.now() / 1000) + 60 * 20; // 20 minutes from now
+    const nonce = Math.floor(Math.random() * 1000000);
+
+    const domain = {
+      name: "USD Coin",
+      version: "2",
+      chainId: 8453, // Base
+      verifyingContract: tokenAddress,
+    };
+
+    const types = {
+      TransferWithAuthorization: [
+        { name: "from", type: "address" },
+        { name: "to", type: "address" },
+        { name: "value", type: "uint256" },
+        { name: "validAfter", type: "uint256" },
+        { name: "validBefore", type: "uint256" },
+        { name: "nonce", type: "bytes32" },
+      ],
+    };
+
+    const value = {
+      from: address,
+      to: recipient,
+      value: parseUnits(amount, 6),
+      validAfter: 0,
+      validBefore: deadline,
+      nonce: `0x${nonce.toString(16).padStart(64, "0")}`,
+    };
+
+    try {
+      const signature = await signTypedData({
+        message: value,
+        domain,
+        types,
+      });
+
+      // Call your contract's receiveWithAuthorization function
+      // Implementation depends on your contract's interface
+    } catch (error) {
+      console.error("Error signing:", error);
+    }
+  };
+
   return (
-    <div className="grid grid-rows-[20px_1fr_20px] items-center justify-items-center min-h-screen p-8 pb-20 gap-16 sm:p-20 font-[family-name:var(--font-geist-sans)]">
-      <main className="flex flex-col gap-8 row-start-2 items-center sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={180}
-          height={38}
-          priority
-        />
-        <ol className="list-inside list-decimal text-sm text-center sm:text-left font-[family-name:var(--font-geist-mono)]">
-          <li className="mb-2">
-            Get started by editing{" "}
-            <code className="bg-black/[.05] dark:bg-white/[.06] px-1 py-0.5 rounded font-semibold">
-              src/app/page.tsx
-            </code>
-            .
-          </li>
-          <li>Save and see your changes instantly.</li>
-        </ol>
-
-        <div className="flex gap-4 items-center flex-col sm:flex-row">
-          <a
-            className="rounded-full border border-solid border-transparent transition-colors flex items-center justify-center bg-foreground text-background gap-2 hover:bg-[#383838] dark:hover:bg-[#ccc] text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={20}
-              height={20}
+    <div className="container mx-auto p-4 max-w-2xl">
+      <Card>
+        <CardHeader>
+          <CardTitle>Test ContentfulSends Contract</CardTitle>
+          <CardDescription>
+            Send ERC20 tokens through the contract
+          </CardDescription>
+        </CardHeader>
+        <CardContent className="space-y-4">
+          <div>
+            <label className="text-sm font-medium">Contract Address</label>
+            <Input
+              value={contractAddress}
+              onChange={(e) => setContractAddress(e.target.value)}
+              placeholder="0x..."
             />
-            Deploy now
-          </a>
-          <a
-            className="rounded-full border border-solid border-black/[.08] dark:border-white/[.145] transition-colors flex items-center justify-center hover:bg-[#f2f2f2] dark:hover:bg-[#1a1a1a] hover:border-transparent text-sm sm:text-base h-10 sm:h-12 px-4 sm:px-5 sm:min-w-44"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Read our docs
-          </a>
-        </div>
-      </main>
-      <footer className="row-start-3 flex gap-6 flex-wrap items-center justify-center">
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/file.svg"
-            alt="File icon"
-            width={16}
-            height={16}
-          />
-          Learn
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/window.svg"
-            alt="Window icon"
-            width={16}
-            height={16}
-          />
-          Examples
-        </a>
-        <a
-          className="flex items-center gap-2 hover:underline hover:underline-offset-4"
-          href="https://nextjs.org?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-          target="_blank"
-          rel="noopener noreferrer"
-        >
-          <Image
-            aria-hidden
-            src="/globe.svg"
-            alt="Globe icon"
-            width={16}
-            height={16}
-          />
-          Go to nextjs.org →
-        </a>
-      </footer>
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Token Address</label>
+            <Input
+              value={tokenAddress}
+              onChange={(e) => setTokenAddress(e.target.value)}
+              placeholder="0x..."
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Amount</label>
+            <Input
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="100"
+              type="number"
+            />
+          </div>
+
+          <div>
+            <label className="text-sm font-medium">Recipient</label>
+            <Input
+              value={recipient}
+              onChange={(e) => setRecipient(e.target.value)}
+              placeholder="0x..."
+            />
+          </div>
+
+          <div className="flex space-x-2">
+            <Button onClick={handleApprove}>Approve</Button>
+            <Button onClick={handleSend} variant="default">
+              Send
+            </Button>
+            <Button onClick={handleEIP3009Send} variant="secondary">
+              Send with EIP3009
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
     </div>
   );
 }
